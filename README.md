@@ -1,5 +1,13 @@
 # zCoin
 
+> **🚀 Development Status**: All active development has moved to the team repository. This repository serves as a reference and backup.
+
+**Team Repository**: [https://github.com/Zerebro-Foundation/zCoin](https://github.com/Zerebro-Foundation/zCoin)
+
+The final audited version will be hosted on the team repository when development is complete.
+
+---
+
 Long Live Zerebro
 
 A Solana program for migrating pump.fun tokens to new tokenomics with precise decimal math, cap enforcement, and administrative controls. Designed specifically for pump.fun token migrations with 10:1 ratio (10 old → 1 new).
