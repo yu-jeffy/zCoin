@@ -1,0 +1,12 @@
+[programs.localnet]
+zcoin = "ZerEbRoPRoGrAm11111111111111111111111111111"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn --cwd ts ts-node ./ts/scripts/03_redeem.ts"
