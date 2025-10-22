@@ -236,6 +236,58 @@ Conversion: 1,000,000 ÷ 10 = 100,000 new tokens
 - [ ] Finalize after 180 days
 - [ ] Burn unredeemed allocation
 
+## Testing
+
+The zCoin project includes a comprehensive test suite for validating the migration system.
+
+### Test Types
+
+1. **Unit Tests** - Rust/Anchor program tests
+2. **Integration Tests** - End-to-end migration flow
+3. **Mock Tests** - Pump.fun token simulation
+4. **E2E Tests** - Complete test suite
+
+### Quick Start Testing
+
+```bash
+# Install dependencies
+cd ts && yarn install
+
+# Start local validator
+solana-test-validator --reset &
+
+# Run all tests
+yarn test:all
+```
+
+### Test Scripts
+
+```bash
+# Unit tests (Rust/Anchor)
+anchor test
+
+# Integration tests
+yarn test:integration
+
+# Mock pump.fun token creation
+yarn test:mock
+
+# End-to-end test suite
+yarn test:e2e
+
+# Automated local testing
+yarn test:local
+```
+
+### Test Configuration
+
+1. Copy `test.env.example` to `test.env`
+2. Generate test keypairs
+3. Deploy program to local validator
+4. Run test suite
+
+See `TEST_SETUP.md` for detailed testing instructions.
+
 ## License
 
 This project is provided as-is for educational and development purposes.

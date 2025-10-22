@@ -1,0 +1,21 @@
+{
+  "name": "zcoin-test-suite",
+  "version": "1.0.0",
+  "description": "Test suite for zCoin pump.fun migration system",
+  "scripts": {
+    "test:unit": "anchor test",
+    "test:integration": "yarn ts-node ./ts/scripts/test_integration.ts",
+    "test:mock": "yarn ts-node ./ts/scripts/test_mock_pumpfun.ts",
+    "test:e2e": "yarn ts-node ./ts/scripts/test_e2e.ts",
+    "test:all": "yarn test:unit && yarn test:integration && yarn test:e2e",
+    "test:local": "solana-test-validator & sleep 5 && yarn test:all && pkill solana-test-validator"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "0.29.0",
+    "@solana/spl-token": "^0.4.7",
+    "@solana/web3.js": "^1.95.2",
+    "dotenv": "^16.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
