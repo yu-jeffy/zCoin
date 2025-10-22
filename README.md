@@ -275,6 +275,44 @@ The zCoin program includes a comprehensive upgrade system that allows for progra
 
 For detailed upgrade documentation, see [UPGRADE_SYSTEM.md](./UPGRADE_SYSTEM.md).
 
+## Deployment
+
+The zCoin project includes comprehensive deployment scripts for both testnet and mainnet with full safety checks and validation.
+
+### **Quick Start**
+```bash
+# Setup deployment environment
+node setup_deployment.js
+
+# Deploy to testnet
+npm run deploy:testnet:safe
+
+# Deploy to mainnet (after testnet testing)
+npm run deploy:mainnet:safe
+
+# Validate deployment
+npm run validate
+```
+
+### **Deployment Features**
+- **Safety Checks**: Comprehensive pre-deployment validation
+- **Environment Validation**: Automatic configuration verification
+- **Progress Monitoring**: Real-time deployment status
+- **Error Handling**: Graceful failure recovery
+- **Deployment Reports**: Detailed post-deployment documentation
+- **Validation System**: Comprehensive deployment verification
+
+### **Safety Guidelines**
+- **Testnet First**: Always test on testnet before mainnet
+- **Hardware Wallets**: Use hardware wallets for mainnet
+- **Multisig Setup**: Required for upgrade authority
+- **Environment Security**: Secure configuration management
+- **Monitoring**: Post-deployment monitoring and validation
+
+For detailed deployment instructions, see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
+
+For safety guidelines, see [DEPLOYMENT_SAFETY.md](./DEPLOYMENT_SAFETY.md).
+
 ## Testing
 
 The zCoin project includes a comprehensive test suite for validating the migration system.

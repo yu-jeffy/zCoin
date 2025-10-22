@@ -3,6 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write .",
+    "deploy:testnet": "ts-node scripts/deploy_testnet.ts",
+    "deploy:mainnet": "ts-node scripts/deploy_mainnet.ts",
+    "validate": "ts-node scripts/validate_deployment.ts",
+    "deploy:testnet:safe": "echo '⚠️  Starting testnet deployment...' && ts-node scripts/deploy_testnet.ts",
+    "deploy:mainnet:safe": "echo '🚨 WARNING: Mainnet deployment!' && ts-node scripts/deploy_mainnet.ts"
+  },
   "dependencies": {
     "@coral-xyz/anchor": "0.29.0",
     "@solana/spl-token": "^0.4.7",
