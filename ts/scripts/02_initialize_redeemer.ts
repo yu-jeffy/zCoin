@@ -73,6 +73,7 @@ function readKeypair(path: string): Keypair {
 
   await program.methods.initialize({
     admin: ADMIN,
+    upgradeAuthority: new PublicKey(process.env.UPGRADE_AUTHORITY!),
     ratioNum: new anchor.BN("1"),          // 10 OLD : 1 NEW
     ratioDen: new anchor.BN("10"),
     totalCap: new anchor.BN(TOTAL_CAP.toString()),

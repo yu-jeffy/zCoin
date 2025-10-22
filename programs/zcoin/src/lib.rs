@@ -18,9 +18,11 @@ pub mod zcoin {
         let cfg = &mut ctx.accounts.config;
 
         // Store constants
+        cfg.version = Config::VERSION;
         cfg.bump = *ctx.bumps.get("config").unwrap();
         cfg.mint_auth_bump = *ctx.bumps.get("mint_authority").unwrap();
         cfg.admin = params.admin;
+        cfg.upgrade_authority = params.upgrade_authority;
         cfg.old_mint = ctx.accounts.old_mint.key();
         cfg.new_mint = ctx.accounts.new_mint.key();
         cfg.ratio_num = params.ratio_num;
@@ -38,6 +40,9 @@ pub mod zcoin {
         cfg.start_ts = params.start_ts;
         cfg.end_ts = params.end_ts;
         cfg.finalized = false;
+        cfg.upgrade_pending = false;
+        cfg.upgrade_target = Pubkey::default();
+        cfg.upgrade_timelock = 0;
 
         // Cap sanity
         require!(cfg.migration_cap <= cfg.total_cap, ErrorCode::InvalidCap);
@@ -221,6 +226,189 @@ pub mod zcoin {
 
         Ok(())
     }
+
+    /// Propose an upgrade to a new program version
+    pub fn propose_upgrade(ctx: Context<ProposeUpgrade>, target_program: Pubkey, timelock_days: u8) -> Result<()> {
+        let cfg = &mut ctx.accounts.config;
+        
+        // Only upgrade authority can propose upgrades
+        require_keys_eq!(ctx.accounts.upgrade_authority.key(), cfg.upgrade_authority, ErrorCode::NotUpgradeAuthority);
+        
+        // Cannot propose upgrade if one is already pending
+        require!(!cfg.upgrade_pending, ErrorCode::UpgradeAlreadyPending);
+        
+        // Set upgrade parameters
+        cfg.upgrade_pending = true;
+        cfg.upgrade_target = target_program;
+        cfg.upgrade_timelock = Clock::get()?.unix_timestamp + (timelock_days as i64 * 86400);
+        
+        emit!(UpgradeProposed {
+            target_program,
+            timelock: cfg.upgrade_timelock,
+            proposer: ctx.accounts.upgrade_authority.key(),
+        });
+        
+        Ok(())
+    }
+
+    /// Execute a pending upgrade after timelock expires
+    pub fn execute_upgrade(ctx: Context<ExecuteUpgrade>) -> Result<()> {
+        let cfg = &mut ctx.accounts.config;
+        
+        // Only upgrade authority can execute upgrades
+        require_keys_eq!(ctx.accounts.upgrade_authority.key(), cfg.upgrade_authority, ErrorCode::NotUpgradeAuthority);
+        
+        // Must have pending upgrade
+        require!(cfg.upgrade_pending, ErrorCode::NoUpgradePending);
+        
+        // Timelock must have expired
+        require!(Clock::get()?.unix_timestamp >= cfg.upgrade_timelock, ErrorCode::UpgradeTimelockNotExpired);
+        
+        // Clear upgrade flags
+        cfg.upgrade_pending = false;
+        cfg.upgrade_target = Pubkey::default();
+        cfg.upgrade_timelock = 0;
+        
+        emit!(UpgradeExecuted {
+            executor: ctx.accounts.upgrade_authority.key(),
+        });
+        
+        Ok(())
+    }
+
+    /// Cancel a pending upgrade (only before timelock expires)
+    pub fn cancel_upgrade(ctx: Context<CancelUpgrade>) -> Result<()> {
+        let cfg = &mut ctx.accounts.config;
+        
+        // Only upgrade authority can cancel upgrades
+        require_keys_eq!(ctx.accounts.upgrade_authority.key(), cfg.upgrade_authority, ErrorCode::NotUpgradeAuthority);
+        
+        // Must have pending upgrade
+        require!(cfg.upgrade_pending, ErrorCode::NoUpgradePending);
+        
+        // Clear upgrade flags
+        cfg.upgrade_pending = false;
+        cfg.upgrade_target = Pubkey::default();
+        cfg.upgrade_timelock = 0;
+        
+        emit!(UpgradeCancelled {
+            canceller: ctx.accounts.upgrade_authority.key(),
+        });
+        
+        Ok(())
+    }
+
+    /// Migrate tokens from old program to new program version
+    pub fn migrate_tokens(ctx: Context<MigrateTokens>, amount: u64) -> Result<()> {
+        let cfg = &mut ctx.accounts.config;
+        
+        // Check if upgrade is pending
+        require!(cfg.upgrade_pending, ErrorCode::NoUpgradePending);
+        
+        // Validate user owns the tokens
+        require_keys_eq!(ctx.accounts.user_old_ata.owner, ctx.accounts.user.key(), ErrorCode::WrongOwner);
+        require_keys_eq!(ctx.accounts.user_old_ata.mint, cfg.old_mint, ErrorCode::WrongMint);
+        
+        // Burn old tokens
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Burn {
+                    mint: ctx.accounts.old_mint.to_account_info(),
+                    from: ctx.accounts.user_old_ata.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+        
+        // Mint new tokens at same ratio
+        let num = (amount as u128)
+            .checked_mul(cfg.ratio_num as u128).ok_or(ErrorCode::MathOverflow)?
+            .checked_mul(pow10_u128(cfg.new_decimals)).ok_or(ErrorCode::MathOverflow)?;
+        let den = (cfg.ratio_den as u128)
+            .checked_mul(pow10_u128(cfg.old_decimals)).ok_or(ErrorCode::MathOverflow)?;
+        let new_amt_u128 = num.checked_div(den).ok_or(ErrorCode::MathOverflow)?;
+        let new_amt: u64 = u64::try_from(new_amt_u128).map_err(|_| ErrorCode::MathOverflow)?;
+        
+        // Mint to user
+        let seeds: &[&[u8]] = &[
+            MINT_AUTH_SEED,
+            cfg.new_mint.as_ref(),
+            &[cfg.mint_auth_bump],
+        ];
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                MintTo {
+                    mint: ctx.accounts.new_mint.to_account_info(),
+                    to: ctx.accounts.user_new_ata.to_account_info(),
+                    authority: ctx.accounts.mint_authority.to_account_info(),
+                },
+                &[seeds],
+            ),
+            new_amt,
+        )?;
+        
+        emit!(TokensMigrated {
+            user: ctx.accounts.user.key(),
+            old_amount: amount,
+            new_amount: new_amt,
+        });
+        
+        Ok(())
+    }
+
+    /// Migrate liquidity from old program to new program version
+    pub fn migrate_liquidity(ctx: Context<MigrateLiquidity>, amount: u64) -> Result<()> {
+        let cfg = &mut ctx.accounts.config;
+        
+        // Check if upgrade is pending
+        require!(cfg.upgrade_pending, ErrorCode::NoUpgradePending);
+        
+        // Only upgrade authority can migrate liquidity
+        require_keys_eq!(ctx.accounts.upgrade_authority.key(), cfg.upgrade_authority, ErrorCode::NotUpgradeAuthority);
+        
+        // Validate liquidity account
+        require_keys_eq!(ctx.accounts.liquidity_ata.mint, cfg.new_mint, ErrorCode::WrongMint);
+        
+        // Transfer liquidity to new program
+        let seeds: &[&[u8]] = &[
+            MINT_AUTH_SEED,
+            cfg.new_mint.as_ref(),
+            &[cfg.mint_auth_bump],
+        ];
+        
+        // Create transfer instruction to new program
+        let transfer_ix = anchor_spl::token::spl_token::instruction::transfer(
+            ctx.accounts.token_program.key(),
+            &ctx.accounts.liquidity_ata.key(),
+            &ctx.accounts.new_liquidity_ata.key(),
+            &ctx.accounts.upgrade_authority.key(),
+            &[],
+            amount,
+        )?;
+        
+        // Execute transfer
+        anchor_lang::solana_program::program::invoke(
+            &transfer_ix,
+            &[
+                ctx.accounts.liquidity_ata.to_account_info(),
+                ctx.accounts.new_liquidity_ata.to_account_info(),
+                ctx.accounts.upgrade_authority.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
+            ],
+        )?;
+        
+        emit!(LiquidityMigrated {
+            from_ata: ctx.accounts.liquidity_ata.key(),
+            to_ata: ctx.accounts.new_liquidity_ata.key(),
+            amount,
+            migrator: ctx.accounts.upgrade_authority.key(),
+        });
+        
+        Ok(())
+    }
 }
 
 // ---------- helpers ----------
@@ -303,6 +491,7 @@ pub struct Initialize<'info> {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeParams {
     pub admin: Pubkey,
+    pub upgrade_authority: Pubkey,  // Multisig or external wallet for upgrades
     pub ratio_num: u64,      // e.g., 1
     pub ratio_den: u64,      // e.g., 10 => 10 old : 1 new
     pub total_cap: u64,      // NEW base units, fits u64 for typical 100M*1e9
@@ -383,11 +572,114 @@ pub struct Redeem<'info> {
     pub mint_authority: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct ProposeUpgrade<'info> {
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, new_mint.key().as_ref()],
+        bump = config.bump
+    )]
+    pub config: Account<'info, Config>,
+    
+    /// CHECK: Must be the upgrade authority
+    pub upgrade_authority: Signer<'info>,
+    pub new_mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteUpgrade<'info> {
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, new_mint.key().as_ref()],
+        bump = config.bump
+    )]
+    pub config: Account<'info, Config>,
+    
+    /// CHECK: Must be the upgrade authority
+    pub upgrade_authority: Signer<'info>,
+    pub new_mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+pub struct CancelUpgrade<'info> {
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, new_mint.key().as_ref()],
+        bump = config.bump
+    )]
+    pub config: Account<'info, Config>,
+    
+    /// CHECK: Must be the upgrade authority
+    pub upgrade_authority: Signer<'info>,
+    pub new_mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateTokens<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, new_mint.key().as_ref()],
+        bump = config.bump
+    )]
+    pub config: Account<'info, Config>,
+    
+    pub token_program: Program<'info, Token>,
+    
+    // Old tokens
+    pub old_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub user_old_ata: Account<'info, TokenAccount>,
+    
+    // New tokens
+    #[account(mut)]
+    pub new_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub user_new_ata: Account<'info, TokenAccount>,
+    
+    /// CHECK: PDA signer for mint authority
+    #[account(
+        seeds = [MINT_AUTH_SEED, new_mint.key().as_ref()],
+        bump = config.mint_auth_bump
+    )]
+    pub mint_authority: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateLiquidity<'info> {
+    #[account(
+        mut,
+        seeds = [CONFIG_SEED, new_mint.key().as_ref()],
+        bump = config.bump
+    )]
+    pub config: Account<'info, Config>,
+    
+    /// CHECK: Must be the upgrade authority
+    pub upgrade_authority: Signer<'info>,
+    
+    #[account(mut)]
+    pub new_mint: Account<'info, Mint>,
+    
+    /// Current liquidity ATA
+    #[account(mut)]
+    pub liquidity_ata: Account<'info, TokenAccount>,
+    
+    /// New liquidity ATA for upgraded program
+    #[account(mut)]
+    pub new_liquidity_ata: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 pub struct Config {
+    pub version: u8,                    // Program version for upgrades
     pub bump: u8,
     pub mint_auth_bump: u8,
     pub admin: Pubkey,
+    pub upgrade_authority: Pubkey,      // Multisig or external wallet for upgrades
     pub old_mint: Pubkey,
     pub new_mint: Pubkey,
     pub ratio_num: u64,
@@ -401,11 +693,14 @@ pub struct Config {
     pub start_ts: i64,
     pub end_ts: i64,
     pub finalized: bool,
-    pub _reserved: [u8; 63], // align to 8
+    pub upgrade_pending: bool,          // Flag for pending upgrades
+    pub upgrade_target: Pubkey,         // Target program for upgrade
+    pub upgrade_timelock: i64,          // Timelock for upgrade execution
+    pub _reserved: [u8; 55],           // align to 8
 }
 impl Config {
-    pub const SIZE: usize =
-        1 + 1 + 32 + 32 + 32 + 8 + 8 + 1 + 1 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 63;
+    pub const VERSION: u8 = 1;
+    pub const SIZE: usize = 1 + 1 + 1 + 32 + 32 + 32 + 32 + 8 + 8 + 1 + 1 + 8 + 8 + 8 + 1 + 8 + 8 + 1 + 1 + 32 + 8 + 55;
 }
 
 // ---------- events & errors ----------
@@ -436,6 +731,39 @@ pub struct WindowUpdated { pub start_ts: i64, pub end_ts: i64 }
 #[event]
 pub struct Finalized {}
 
+#[event]
+pub struct UpgradeProposed {
+    pub target_program: Pubkey,
+    pub timelock: i64,
+    pub proposer: Pubkey,
+}
+
+#[event]
+pub struct UpgradeExecuted {
+    pub executor: Pubkey,
+}
+
+#[event]
+pub struct UpgradeCancelled {
+    pub canceller: Pubkey,
+}
+
+#[event]
+pub struct TokensMigrated {
+    #[index]
+    pub user: Pubkey,
+    pub old_amount: u64,
+    pub new_amount: u64,
+}
+
+#[event]
+pub struct LiquidityMigrated {
+    pub from_ata: Pubkey,
+    pub to_ata: Pubkey,
+    pub amount: u64,
+    pub migrator: Pubkey,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Caller is not admin")] NotAdmin,
@@ -454,4 +782,9 @@ pub enum ErrorCode {
     #[msg("Dust too small after conversion")] DustTooSmall,
     #[msg("New mint authority isn't the program PDA")] WrongMintAuthority,
     #[msg("Freeze authority isn't the admin key")] WrongFreezeAuthority,
+    #[msg("Caller is not upgrade authority")] NotUpgradeAuthority,
+    #[msg("Upgrade already pending")] UpgradeAlreadyPending,
+    #[msg("No upgrade pending")] NoUpgradePending,
+    #[msg("Upgrade timelock not expired")] UpgradeTimelockNotExpired,
+    #[msg("Invalid upgrade target")] InvalidUpgradeTarget,
 }

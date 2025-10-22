@@ -123,6 +123,25 @@ yarn ts-node ./ts/scripts/07_update_window.ts
 
 # Check migration status
 yarn ts-node ./ts/scripts/08_check_status.ts
+```
+
+### 5. Upgrade System
+
+```bash
+# Propose program upgrade (with timelock)
+yarn ts-node ./ts/scripts/10_propose_upgrade.ts
+
+# Execute upgrade after timelock expires
+yarn ts-node ./ts/scripts/11_execute_upgrade.ts
+
+# Cancel pending upgrade
+yarn ts-node ./ts/scripts/12_cancel_upgrade.ts
+
+# Migrate user tokens to new version
+yarn ts-node ./ts/scripts/13_migrate_tokens.ts
+
+# Migrate liquidity to new version
+yarn ts-node ./ts/scripts/14_migrate_liquidity.ts
 
 # View migration statistics
 yarn ts-node ./ts/scripts/09_migration_stats.ts
@@ -235,6 +254,26 @@ Conversion: 1,000,000 ÷ 10 = 100,000 new tokens
 - [ ] Set up new token liquidity
 - [ ] Finalize after 180 days
 - [ ] Burn unredeemed allocation
+
+## Upgrade System
+
+The zCoin program includes a comprehensive upgrade system that allows for program upgrades while ensuring all tokens and liquidity can be migrated to new versions.
+
+### Key Features
+- **Multisig Governance**: Upgrade authority can be a multisig wallet
+- **Timelock Protection**: Upgrades require timelock period (default: 7 days)
+- **Token Migration**: Users can migrate tokens to new program versions
+- **Liquidity Migration**: Liquidity can be migrated to new versions
+- **Security**: All upgrade actions require upgrade authority signature
+
+### Upgrade Process
+1. **Propose Upgrade**: Upgrade authority proposes new program version
+2. **Timelock Period**: Community has time to review (7+ days)
+3. **Execute Upgrade**: Upgrade executed after timelock expires
+4. **Migrate Tokens**: Users migrate their tokens to new version
+5. **Migrate Liquidity**: Upgrade authority migrates liquidity
+
+For detailed upgrade documentation, see [UPGRADE_SYSTEM.md](./UPGRADE_SYSTEM.md).
 
 ## Testing
 
