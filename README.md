@@ -112,14 +112,23 @@ yarn ts-node ./ts/scripts/03_redeem.ts
 # Users burn pump.fun tokens and receive new tokens at 10:1 ratio
 ```
 
-### 4. Admin Controls (if needed)
+### 4. Admin Controls
 
 ```bash
+# Pause/unpause migration (emergency)
+yarn ts-node ./ts/scripts/06_pause_migration.ts
+
+# Update migration window times
+yarn ts-node ./ts/scripts/07_update_window.ts
+
+# Check migration status
+yarn ts-node ./ts/scripts/08_check_status.ts
+
+# View migration statistics
+yarn ts-node ./ts/scripts/09_migration_stats.ts
+
 # Freeze/thaw specific accounts
 yarn ts-node ./ts/scripts/04_freeze_unfreeze.ts
-
-# Pause migration (emergency)
-# Add pause script here
 ```
 
 ### 5. Finalize Migration
